@@ -2,16 +2,16 @@ from django.contrib.auth.models import User
 from rest_framework.decorators import api_view
 from rest_framework.response import Response
 from rest_framework import status
+from rest_framework.permissions import IsAuthenticated
+from rest_framework.decorators import permission_classes
 from .services import get_or_create_cart, add_product_to_cart, remove_product_from_cart, calculate_cart_total, create_order_from_cart
 from .models import CartItem
 from products.models import Product
 
 
 @api_view(['GET'])
+@permission_classes([IsAuthenticated])
 def view_cart(request):
-    # I'll change the below line when reach to auth part
-    request.user = User.objects.first()
-
     cart = get_or_create_cart(request.user)
     items = cart.items.select_related('product')
     data = [{
@@ -27,10 +27,8 @@ def view_cart(request):
     })
 
 @api_view(['POST'])
+@permission_classes([IsAuthenticated])
 def add_to_cart(request):
-    # I'll change the below line when reach to auth part
-    request.user = User.objects.first()
-
     product_id = request.data.get('product_id')
     quantity = int(request.data.get('quantity', 1))
 
@@ -41,10 +39,8 @@ def add_to_cart(request):
     return Response({'message': f'Added {item.quantity} x {item.product.name} to cart.'})
 
 @api_view(['POST'])
+@permission_classes([IsAuthenticated])
 def remove_from_cart(request):
-    # I'll change the below line when reach to auth part
-    request.user = User.objects.first()
-
     product_id = request.data.get('product_id')
 
     if not Product.objects.filter(pk=product_id).exists():
@@ -54,10 +50,8 @@ def remove_from_cart(request):
     return Response({'message': 'Product removed from cart.'})
 
 @api_view(['POST'])
+@permission_classes([IsAuthenticated])
 def checkout(request):
-    # I'll change the below line when reach to auth part
-    request.user = User.objects.first()
-
     try:
         order = create_order_from_cart(request.user, full_name="Test User", address="Test Address")
         return Response({
