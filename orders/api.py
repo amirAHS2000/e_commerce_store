@@ -7,57 +7,81 @@ from rest_framework.decorators import permission_classes
 from .services import get_or_create_cart, add_product_to_cart, remove_product_from_cart, calculate_cart_total, create_order_from_cart
 from .models import CartItem
 from products.models import Product
+from .serializers import CartItemSerializer, AddToCartSerializer, RemoveFromCartSerializer, CheckoutSerializer
 
 
 @api_view(['GET'])
 @permission_classes([IsAuthenticated])
 def view_cart(request):
-    cart = get_or_create_cart(request.user)
-    items = cart.items.select_related('product')
-    data = [{
-        'product_id': item.product.id,
-        'product_name': item.product.name,
-        'price': item.product.price,
-        'quantity': item.quantity,
-        'subtotal': item.quantity * item.product.price
-    } for item in items]
+    cart_items = CartItem.objects.filter(user=request.user)
+    serializer = CartItemSerializer(cart_items, many=True)
     return Response({
-        'items': data,
-        'total': calculate_cart_total(request.user)
-    })
+        'items': serializer.data,
+        'total': calculate_cart_total(cart_items)
+    }, status=status.HTTP_200_OK)
 
 @api_view(['POST'])
 @permission_classes([IsAuthenticated])
 def add_to_cart(request):
-    product_id = request.data.get('product_id')
-    quantity = int(request.data.get('quantity', 1))
+    serializer = AddToCartSerializer(data=request.data)
+    if serializer.is_valid():
+        product_id = serializer.validated_data['product_id']
+        quantity = serializer.validated_data['quantity']
 
-    if not Product.objects.filter(pk=product_id).exists():
-        return Response({'error': 'Product not found'}, status=404)
-    
-    item = add_product_to_cart(request.user, product_id, quantity)
-    return Response({'message': f'Added {item.quantity} x {item.product.name} to cart.'})
+        try:
+            product = Product.objects.get(pk=product_id)
+        except Product.DoesNotExist:
+            return Response({'error': 'Product not found.'}, status=status.HTTP_404_NOT_FOUND)
+        
+        cart_item, created = CartItem.objects.get_or_create(
+            user=request.user,
+            product=product,
+            defaults={'quantity': quantity}
+        )
+
+        if not created:
+            cart_item.quantity += quantity
+            cart_item.save()
+
+        return Response({'message': 'Product added to cart.'}, status=status.HTTP_200_OK)
+    else:
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
 @api_view(['POST'])
 @permission_classes([IsAuthenticated])
 def remove_from_cart(request):
-    product_id = request.data.get('product_id')
+    serializer = RemoveFromCartSerializer(data=request.data)
+    if serializer.is_valid():
+        product_id = serializer.validated_data['product_id']
 
-    if not Product.objects.filter(pk=product_id).exists():
-        return Response({'error': 'Product not found'}, status=404)
-    
-    remove_product_from_cart(request.user, product_id)
-    return Response({'message': 'Product removed from cart.'})
+        try:
+            cart_item = CartItem.objects.get(
+                user=request.user,
+                product_id=product_id
+            )
+            cart_item.delete()
+            return Response({'message': 'Item removed from cart.'}, status=status.HTTP_200_OK)
+        except CartItem.DoesNotExist:
+            return Response({'error': 'Item not found in cart.'}, status=status.HTTP_404_NOT_FOUND)
+    else:
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
 @api_view(['POST'])
 @permission_classes([IsAuthenticated])
 def checkout(request):
-    try:
-        order = create_order_from_cart(request.user, full_name="Test User", address="Test Address")
-        return Response({
-            'message': 'Order created successfully.',
-            'order_id': order.id,
-            'created_at': order.created_at
-        }, status=201)
-    except Exception as e:
-        return Response({'error': str(e)}, status=400)
+    serializer = CheckoutSerializer(data=request.data)
+    if serializer.is_valid():
+        full_name = serializer.validated_data['full_name']
+        address = serializer.validated_data['address']
+
+        try:
+            order = create_order_from_cart(request.user, full_name, address)
+            return Response({
+                'message': 'Order created successfully.',
+                'order_id': order.id,
+                'created_at': order.created_at
+            }, status=status.HTTP_201_CREATED)
+        except Exception as e:
+            return Response({'error': str(e)}, status=status.HTTP_400_BAD_REQUEST)
+    else:
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
