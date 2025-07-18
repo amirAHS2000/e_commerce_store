@@ -35,7 +35,7 @@ def create_order_from_cart(user, full_name, address):
         user=user,
         full_name=full_name,
         address=address,
-        paid=False
+        status='pending'
     )
     for item in cart.items.select_related('product'):
         OrderItem.objects.create(
